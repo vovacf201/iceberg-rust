@@ -19,7 +19,6 @@
  * Data Types
  */
 use std::collections::HashMap;
-use std::convert::identity;
 use std::fmt;
 use std::ops::Index;
 use std::sync::{Arc, OnceLock};
@@ -589,22 +588,62 @@ struct SerdeNestedField {
     pub write_default: Option<JsonValue>,
 }
 
+/// Parses a field default, logging and discarding it when it cannot be represented.
+///
+/// This deliberately does not fail. `NestedField` is deserialized through an infallible
+/// [`From`] conversion, so surfacing the error would mean making `NestedField` — and therefore all
+/// table-metadata deserialization — fallible, including on read paths that never look at defaults.
+/// A single unrepresentable default would then make a table unreadable.
+///
+/// Discarding a default is not harmless, though: readers fall back to `null` for a field that is
+/// absent from a data file, so a dropped default can silently become `NULL`, and a writer that
+/// rewrites the file (compaction, for instance) can make that permanent. The drop is therefore
+/// logged so it is at least diagnosable, and callers that must not corrupt data are expected to
+/// reject such a table rather than rely on this path.
+fn parse_field_default(
+    value: serde_json::Value,
+    field_type: &Type,
+    default_kind: &str,
+    field_id: i32,
+    field_name: &str,
+) -> Option<Literal> {
+    match Literal::try_from_json(value, field_type) {
+        Ok(literal) => literal,
+        Err(error) => {
+            tracing::warn!(
+                field_id,
+                field_name,
+                field_type = %field_type,
+                %error,
+                "Discarding `{default_kind}` that cannot be represented as {field_type}; \
+                 the field will read as NULL where it is absent from a data file.",
+            );
+            None
+        }
+    }
+}
+
 impl From<SerdeNestedField> for NestedField {
     fn from(value: SerdeNestedField) -> Self {
+        let initial_default = value.initial_default.and_then(|x| {
+            parse_field_default(
+                x,
+                &value.field_type,
+                "initial-default",
+                value.id,
+                &value.name,
+            )
+        });
+        let write_default = value.write_default.and_then(|x| {
+            parse_field_default(x, &value.field_type, "write-default", value.id, &value.name)
+        });
+
         NestedField {
             id: value.id,
             name: value.name,
             required: value.required,
-            initial_default: value.initial_default.and_then(|x| {
-                Literal::try_from_json(x, &value.field_type)
-                    .ok()
-                    .and_then(identity)
-            }),
-            write_default: value.write_default.and_then(|x| {
-                Literal::try_from_json(x, &value.field_type)
-                    .ok()
-                    .and_then(identity)
-            }),
+            initial_default,
+            write_default,
             field_type: value.field_type,
             doc: value.doc,
         }

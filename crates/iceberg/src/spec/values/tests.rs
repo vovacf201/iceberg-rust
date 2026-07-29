@@ -241,6 +241,105 @@ fn json_uuid() {
 }
 
 #[test]
+fn json_timestamp_ns() {
+    let record = r#""2017-11-16T22:31:08.123456789""#;
+
+    check_json_serde(
+        record,
+        Literal::Primitive(PrimitiveLiteral::Long(1510871468123456789)),
+        &Type::Primitive(PrimitiveType::TimestampNs),
+    );
+}
+
+#[test]
+fn json_timestamptz_ns() {
+    let record = r#""2017-11-16T22:31:08.123456789+00:00""#;
+
+    check_json_serde(
+        record,
+        Literal::Primitive(PrimitiveLiteral::Long(1510871468123456789)),
+        &Type::Primitive(PrimitiveType::TimestamptzNs),
+    );
+}
+
+/// Timestamps before the Unix epoch are the interesting case: `timestamptz`'s conversion used to
+/// split the value into seconds and a remainder by hand, which leaves a *negative* remainder for
+/// pre-1970 values and panicked once cast to an unsigned subsecond count.
+#[test]
+fn json_timestamps_before_the_unix_epoch_round_trip() {
+    check_json_serde(
+        r#""1969-12-31T23:59:59.999999+00:00""#,
+        Literal::Primitive(PrimitiveLiteral::Long(-1)),
+        &Type::Primitive(PrimitiveType::Timestamptz),
+    );
+    check_json_serde(
+        r#""1969-12-31T23:59:59.999999999+00:00""#,
+        Literal::Primitive(PrimitiveLiteral::Long(-1)),
+        &Type::Primitive(PrimitiveType::TimestamptzNs),
+    );
+    check_json_serde(
+        r#""1969-12-31T23:59:59.999999999""#,
+        Literal::Primitive(PrimitiveLiteral::Long(-1)),
+        &Type::Primitive(PrimitiveType::TimestampNs),
+    );
+}
+
+/// `i64` nanoseconds since the epoch only spans roughly 1677..=2262, so a literal outside that
+/// range has to be reported rather than silently wrapping or panicking.
+#[test]
+fn json_timestamp_ns_out_of_range_errors() {
+    for (json, ty) in [
+        (
+            r#""2263-01-01T00:00:00""#,
+            Type::Primitive(PrimitiveType::TimestampNs),
+        ),
+        (
+            r#""1600-01-01T00:00:00""#,
+            Type::Primitive(PrimitiveType::TimestampNs),
+        ),
+        (
+            r#""2263-01-01T00:00:00+00:00""#,
+            Type::Primitive(PrimitiveType::TimestamptzNs),
+        ),
+        (
+            r#""1600-01-01T00:00:00+00:00""#,
+            Type::Primitive(PrimitiveType::TimestamptzNs),
+        ),
+    ] {
+        let raw = serde_json::from_str::<JsonValue>(json).unwrap();
+        let result = Literal::try_from_json(raw, &ty);
+        assert!(
+            result.is_err(),
+            "expected {json} to be rejected for {ty}, got {result:?}"
+        );
+    }
+}
+
+/// A `timestamp_ns` default used to be dropped silently: `try_from_json` had no arm for it, so the
+/// error was swallowed and the field read as NULL even though `try_into_json` could write it.
+#[test]
+fn nanosecond_initial_default_survives_schema_deserialization() {
+    let field: NestedField = serde_json::from_str(
+        r#"{
+            "id": 1,
+            "name": "created_at",
+            "required": false,
+            "type": "timestamp_ns",
+            "initial-default": "2017-11-16T22:31:08.123456789"
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        field.initial_default,
+        Some(Literal::Primitive(PrimitiveLiteral::Long(
+            1510871468123456789
+        ))),
+        "the `initial-default` must not be silently discarded"
+    );
+}
+
+#[test]
 fn json_decimal() {
     let record = r#""14.20""#;
 

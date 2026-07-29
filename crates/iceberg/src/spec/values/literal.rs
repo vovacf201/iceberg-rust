@@ -493,6 +493,26 @@ impl Literal {
                         )),
                     ))))
                 }
+                (PrimitiveType::TimestampNs, JsonValue::String(s)) => {
+                    let datetime = NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f")?;
+                    Ok(Some(Literal::Primitive(PrimitiveLiteral::Long(
+                        nanoseconds_or_out_of_range(
+                            timestamp::datetime_to_nanoseconds(&datetime),
+                            &s,
+                        )?,
+                    ))))
+                }
+                (PrimitiveType::TimestamptzNs, JsonValue::String(s)) => {
+                    let datetime = NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f+00:00")?;
+                    Ok(Some(Literal::Primitive(PrimitiveLiteral::Long(
+                        nanoseconds_or_out_of_range(
+                            timestamptz::datetimetz_to_nanoseconds(
+                                &Utc.from_utc_datetime(&datetime),
+                            ),
+                            &s,
+                        )?,
+                    ))))
+                }
                 (PrimitiveType::String, JsonValue::String(s)) => {
                     Ok(Some(Literal::Primitive(PrimitiveLiteral::String(s))))
                 }
@@ -747,4 +767,21 @@ impl Literal {
             _ => unimplemented!(),
         }
     }
+}
+
+/// Converts an optional nanosecond timestamp into a value or a descriptive error.
+///
+/// `timestamp_ns` and `timestamptz_ns` are `i64` nanoseconds since the Unix epoch, which only spans
+/// roughly 1677-09-21..=2262-04-11. A literal outside that range cannot be represented and must be
+/// reported rather than panicking, because these values come from table metadata.
+fn nanoseconds_or_out_of_range(nanos: Option<i64>, raw: &str) -> Result<i64> {
+    nanos.ok_or_else(|| {
+        Error::new(
+            ErrorKind::DataInvalid,
+            format!(
+                "The timestamp {raw:?} cannot be represented as nanoseconds since the Unix epoch; \
+                 `timestamp_ns` and `timestamptz_ns` only span roughly 1677-09-21 to 2262-04-11."
+            ),
+        )
+    })
 }
