@@ -551,7 +551,7 @@ impl fmt::Display for StructType {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Eq, Clone)]
-#[serde(from = "SerdeNestedField", into = "SerdeNestedField")]
+#[serde(try_from = "SerdeNestedField", into = "SerdeNestedField")]
 /// A struct is a tuple of typed values. Each field in the tuple is named and has an integer id that is unique in the table schema.
 /// Each field can be either optional or required, meaning that values can (or cannot) be null. Fields may be any type.
 /// Fields may have an optional comment or doc string. Fields can have default values.
@@ -588,57 +588,58 @@ struct SerdeNestedField {
     pub write_default: Option<JsonValue>,
 }
 
-/// Parses a field default, logging and discarding it when it cannot be represented.
+/// Parses a field default, failing when it cannot be represented as the field's type.
 ///
-/// This deliberately does not fail. `NestedField` is deserialized through an infallible
-/// [`From`] conversion, so surfacing the error would mean making `NestedField` — and therefore all
-/// table-metadata deserialization — fallible, including on read paths that never look at defaults.
-/// A single unrepresentable default would then make a table unreadable.
-///
-/// Discarding a default is not harmless, though: readers fall back to `null` for a field that is
-/// absent from a data file, so a dropped default can silently become `NULL`, and a writer that
-/// rewrites the file (compaction, for instance) can make that permanent. The drop is therefore
-/// logged so it is at least diagnosable, and callers that must not corrupt data are expected to
-/// reject such a table rather than rely on this path.
+/// This is deliberately fallible. Discarding an unrepresentable default would make invalid metadata
+/// indistinguishable from a field that simply has no default, and the consequence is silent: a
+/// reader falls back to `null` for a field absent from a data file, so a *required* field can end up
+/// materializing `NULL`, and a writer that rewrites the file makes that permanent. Rejecting the
+/// metadata keeps the failure loud and recoverable, and matches the reference implementation, which
+/// also refuses invalid single values.
 fn parse_field_default(
     value: serde_json::Value,
     field_type: &Type,
     default_kind: &str,
     field_id: i32,
     field_name: &str,
-) -> Option<Literal> {
-    match Literal::try_from_json(value, field_type) {
-        Ok(literal) => literal,
-        Err(error) => {
-            tracing::warn!(
-                field_id,
-                field_name,
-                field_type = %field_type,
-                %error,
-                "Discarding `{default_kind}` that cannot be represented as {field_type}; \
-                 the field will read as NULL where it is absent from a data file.",
-            );
-            None
-        }
-    }
+) -> Result<Option<Literal>> {
+    Literal::try_from_json(value, field_type).map_err(|error| {
+        crate::Error::new(
+            crate::ErrorKind::DataInvalid,
+            format!(
+                "Invalid `{default_kind}` for field {field_id} ({field_name:?}) of type {field_type}."
+            ),
+        )
+        .with_source(error)
+    })
 }
 
-impl From<SerdeNestedField> for NestedField {
-    fn from(value: SerdeNestedField) -> Self {
-        let initial_default = value.initial_default.and_then(|x| {
-            parse_field_default(
-                x,
-                &value.field_type,
-                "initial-default",
-                value.id,
-                &value.name,
-            )
-        });
-        let write_default = value.write_default.and_then(|x| {
-            parse_field_default(x, &value.field_type, "write-default", value.id, &value.name)
-        });
+impl TryFrom<SerdeNestedField> for NestedField {
+    type Error = crate::Error;
 
-        NestedField {
+    fn try_from(value: SerdeNestedField) -> Result<Self> {
+        let initial_default = value
+            .initial_default
+            .map(|x| {
+                parse_field_default(
+                    x,
+                    &value.field_type,
+                    "initial-default",
+                    value.id,
+                    &value.name,
+                )
+            })
+            .transpose()?
+            .flatten();
+        let write_default = value
+            .write_default
+            .map(|x| {
+                parse_field_default(x, &value.field_type, "write-default", value.id, &value.name)
+            })
+            .transpose()?
+            .flatten();
+
+        Ok(NestedField {
             id: value.id,
             name: value.name,
             required: value.required,
@@ -646,7 +647,7 @@ impl From<SerdeNestedField> for NestedField {
             write_default,
             field_type: value.field_type,
             doc: value.doc,
-        }
+        })
     }
 }
 
