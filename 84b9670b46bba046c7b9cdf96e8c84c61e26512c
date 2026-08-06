@@ -1,0 +1,23 @@
+crates/iceberg/src/delete_file_index.rs
+  s_5306e8a11082a9::t_3b76ea6f9e0d9b 34,36-38
+crates/iceberg/src/transaction/replace_files.rs
+  s_5306e8a11082a9::t_0c53b908eb7a77 447,449,493-502,518,584,594-640,689-845
+crates/iceberg/src/transaction/snapshot.rs
+  s_5306e8a11082a9::t_44c8e5e38b28bb 1051-1071,1082,1084-1090,1093-1107,1109,1113-1114,1118-1136,1169-1171,1173,1175-1208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "84b9670b46bba046c7b9cdf96e8c84c61e26512c",
+  "prompts": {},
+  "sessions": {
+    "s_5306e8a11082a9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05bf2bebaffecL5EGAfPppS3QK",
+        "model": "claude-opus-5"
+      },
+      "human_author": "vovacf201 <volodymyr@cloudflare.com>"
+    }
+  }
+}
