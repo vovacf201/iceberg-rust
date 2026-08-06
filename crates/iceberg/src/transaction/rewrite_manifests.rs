@@ -24,8 +24,7 @@ use uuid::Uuid;
 use super::snapshot::{DefaultManifestProcess, SnapshotProduceOperation, SnapshotProducer};
 use crate::error::Result;
 use crate::spec::{
-    DataFile, MIN_FORMAT_VERSION_ROW_LINEAGE, ManifestContentType, ManifestEntry, ManifestFile,
-    ManifestWriter, Operation,
+    DataFile, ManifestContentType, ManifestEntry, ManifestFile, ManifestWriter, Operation,
 };
 use crate::table::Table;
 use crate::transaction::{
@@ -403,31 +402,54 @@ impl SnapshotProduceOperation for RewriteManifestsOperation {
         // Existing manifests come first (kept), then new manifests — the
         // SnapshotProducer will append any added-data-file manifests after these,
         // but for rewrite_manifests there are none.
-        Ok(self.result_manifests.clone())
+        //
+        // `first_row_id` is cleared on every manifest, because this operation assigns no row IDs
+        // (`assigns_row_ids` returns false) and so the manifest-list writer carries no
+        // `next_row_id`. `result_manifests` mixes *newly written* manifests, which already have
+        // `first_row_id: None`, with manifests **kept verbatim**, which retain the value assigned
+        // when they were first committed. An unseeded writer rejects the latter outright
+        // ("Writer does not have a next-row-id assigned, but the manifest has first-row-id
+        // assigned to N"), so leaving them populated would fail every rewrite that does not replace
+        // *all* manifests — i.e. the common case.
+        //
+        // Clearing is also the coherent outcome rather than a workaround: the snapshot ends up
+        // uniformly lineage-free, instead of pairing a partially-populated manifest list with an
+        // absent row range.
+        Ok(self
+            .result_manifests
+            .iter()
+            .cloned()
+            .map(|mut manifest| {
+                manifest.first_row_id = None;
+                manifest
+            })
+            .collect())
+    }
+
+    fn assigns_row_ids(&self) -> bool {
+        // A rewrite repacks existing entries: no row is added, removed or altered, so it claims no
+        // row-ID space. Returning `true` here would make the manifest-list writer mint fresh
+        // `first_row_id`s for the newly written manifests and advance the table's `next_row_id` as
+        // though rows had been added, re-minting the `_row_id` of untouched rows.
+        false
     }
 }
 
 #[async_trait::async_trait]
 impl TransactionAction for RewriteManifestsAction {
     async fn commit(self: Arc<Self>, table: &Table) -> Result<ActionCommit> {
-        // Reject rewrite_manifests for tables with row lineage (V3+).
-        // Rewriting manifests creates new ManifestFiles with first_row_id unset,
-        // causing ManifestListWriter to assign fresh row IDs and advance
-        // next_row_id even though no new rows were added. This breaks row lineage
-        // semantics. Until a strategy to preserve row IDs through manifest rewrites
-        // is implemented, this operation is unsupported for V3 tables.
-        if table.metadata().format_version() >= MIN_FORMAT_VERSION_ROW_LINEAGE {
-            return Err(Error::new(
-                ErrorKind::FeatureUnsupported,
-                format!(
-                    "rewrite_manifests is not supported for tables with row lineage \
-                     (format version >= {MIN_FORMAT_VERSION_ROW_LINEAGE}). Rewriting \
-                     manifests would incorrectly advance next_row_id without adding \
-                     new rows.",
-                ),
-            ));
-        }
-
+        // V3 tables are supported. This used to return `FeatureUnsupported`, because a rewrite
+        // emits freshly written `ManifestFile`s with `first_row_id` unset, which made the
+        // manifest-list writer mint fresh row IDs and advance `next_row_id` even though no rows
+        // were added — re-minting the `_row_id` of untouched rows.
+        //
+        // That is now handled rather than refused: `RewriteManifestsOperation::assigns_row_ids`
+        // returns `false`, so the writer is seeded with no `next_row_id`, `first_row_id` is left
+        // unset on every data manifest, and the snapshot carries no row range. Row lineage for the
+        // rewritten manifests is therefore *absent* (`_row_id` reads null, per the spec's treatment
+        // of snapshots that assign no ID space) instead of silently *wrong*, and `next_row_id` does
+        // not move.
+        //
         // Resolve the identity of the *new* snapshot we are proposing to
         // commit. See the doc-comment on `RewriteManifestsState::commit_uuid`
         // / `proposed_snapshot_id` for the motivation — in short, this
@@ -852,27 +874,117 @@ mod tests {
         }
     }
 
+    /// A V3 table is supported, and the resulting snapshot claims **no row-ID space**.
+    ///
+    /// This replaces three tests that asserted `FeatureUnsupported` for V3. The refusal existed
+    /// because a rewrite emits freshly written manifests with `first_row_id` unset, which made the
+    /// manifest-list writer mint new row IDs and advance `next_row_id` as though rows had been added
+    /// — re-minting `_row_id` for rows the rewrite never touched. It is now handled instead: the
+    /// operation declares `assigns_row_ids() == false`, so lineage is left *absent* rather than
+    /// rewritten to a wrong value.
+    ///
+    /// The added manifest deliberately carries an **explicit** `first_row_id`, which is what a
+    /// manifest kept verbatim from an earlier commit looks like. That makes this test cover the
+    /// non-obvious half of the change: an unseeded manifest-list writer *rejects* a manifest that
+    /// still has `first_row_id` set, so without the clearing in `existing_manifest()` this commit
+    /// fails outright.
     #[tokio::test]
-    async fn test_rewrite_manifests_rejects_v3_table() {
+    async fn test_rewrite_manifests_v3_assigns_no_row_ids() {
         let table = make_v3_minimal_table();
-        // Even a no-op rewrite should be rejected for V3 tables.
-        let action = RewriteManifestsAction::new();
-        assert_commit_err(action, &table, "rewrite_manifests is not supported").await;
+        assert_eq!(
+            table.metadata().next_row_id(),
+            0,
+            "precondition: the fixture starts with no row-ID space assigned"
+        );
+
+        let mut manifest = test_manifest("s3://bucket/manifest-ok.avro", Some(0), Some(0), Some(0));
+        manifest.first_row_id = Some(1000);
+
+        let action = Arc::new(RewriteManifestsAction::new().add_manifest(manifest));
+        let mut commit = action
+            .commit(&table)
+            .await
+            .expect("a V3 rewrite must be supported");
+
+        let snapshot = commit
+            .take_updates()
+            .into_iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .expect("the commit must add a snapshot");
+
+        assert_eq!(
+            snapshot.row_range(),
+            None,
+            "a rewrite adds no rows, so the snapshot must carry no row range. A `Some(..)` here means \
+             row IDs were minted for rows that already existed, and the table's next_row_id would \
+             advance without any row having been added"
+        );
     }
 
+    /// The same, for the `cluster_by` path — it takes a different branch through the rewrite (entries
+    /// are re-routed into per-key writers) and so must be covered separately.
     #[tokio::test]
-    async fn test_rewrite_manifests_rejects_v3_table_with_cluster_by() {
+    async fn test_rewrite_manifests_v3_with_cluster_by_is_supported() {
         let table = make_v3_minimal_table();
-        let action = RewriteManifestsAction::new().cluster_by(Box::new(|_| "default".to_string()));
-        assert_commit_err(action, &table, "rewrite_manifests is not supported").await;
+        let manifest = test_manifest("s3://bucket/manifest-cb.avro", Some(0), Some(0), Some(0));
+
+        let action = Arc::new(
+            RewriteManifestsAction::new()
+                .cluster_by(Box::new(|_| "default".to_string()))
+                .add_manifest(manifest),
+        );
+
+        let mut commit = action
+            .commit(&table)
+            .await
+            .expect("a V3 rewrite with cluster_by must be supported");
+
+        let snapshot = commit
+            .take_updates()
+            .into_iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .expect("the commit must add a snapshot");
+
+        assert_eq!(
+            snapshot.row_range(),
+            None,
+            "cluster_by must not change the row-lineage outcome"
+        );
     }
 
+    /// A V2 table must be unaffected: `assigns_row_ids` is a v3-only concept, and the V2
+    /// manifest-list writer has no row-ID state at all.
     #[tokio::test]
-    async fn test_rewrite_manifests_rejects_v3_table_with_add_manifest() {
-        let table = make_v3_minimal_table();
-        let manifest = test_manifest("s3://bucket/manifest-ok.avro", Some(0), Some(5), Some(0));
-        let action = RewriteManifestsAction::new().add_manifest(manifest);
-        assert_commit_err(action, &table, "rewrite_manifests is not supported").await;
+    async fn test_rewrite_manifests_v2_is_unaffected_by_row_id_change() {
+        let table = make_v2_minimal_table();
+        let manifest = test_manifest("s3://bucket/manifest-v2.avro", Some(0), Some(0), Some(0));
+
+        let action = Arc::new(RewriteManifestsAction::new().add_manifest(manifest));
+        let mut commit = action
+            .commit(&table)
+            .await
+            .expect("a V2 rewrite must still be supported");
+
+        let snapshot = commit
+            .take_updates()
+            .into_iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .expect("the commit must add a snapshot");
+
+        assert_eq!(
+            snapshot.row_range(),
+            None,
+            "a V2 snapshot never carries a row range"
+        );
     }
 
     #[tokio::test]
@@ -945,7 +1057,7 @@ mod tests {
         // Both added and deleted are known-zero — should pass the validation.
         // (It will fail later during snapshot commit because there is no matching
         // deleted manifest, but the add_manifest validation itself should succeed.)
-        let manifest = test_manifest("s3://bucket/manifest-ok.avro", Some(0), Some(5), Some(0));
+        let manifest = test_manifest("s3://bucket/manifest-ok.avro", Some(0), Some(0), Some(0));
         let action = Arc::new(RewriteManifestsAction::new().add_manifest(manifest));
         let result = action.commit(&table).await;
         // The error, if any, should NOT be about added/deleted files.

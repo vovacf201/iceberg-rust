@@ -92,6 +92,26 @@ pub(crate) trait SnapshotProduceOperation: Send + Sync {
         &self,
         snapshot_produce: &mut SnapshotProducer<'_>,
     ) -> impl Future<Output = Result<Vec<ManifestFile>>> + Send;
+
+    /// Whether this operation assigns row IDs to the manifests it writes (v3 row lineage).
+    ///
+    /// Operations that genuinely introduce rows must assign row IDs, so the default is `true`.
+    ///
+    /// An operation returning `false` declares that it adds no rows and therefore claims no row-ID
+    /// space. The manifest-list writer is then seeded with **no** `next_row_id`, which makes it leave
+    /// `first_row_id` unset on every data manifest instead of minting fresh values, and the resulting
+    /// snapshot carries **no row range** so the table's `next_row_id` does not advance. Readers see
+    /// `_row_id` as null for those rows — the shape the spec prescribes for snapshots that assign no
+    /// ID space.
+    ///
+    /// Only `rewrite_manifests` returns `false`: it repacks existing entries into new manifest files
+    /// without adding, removing or changing a single row. Because the `ManifestFile`s it emits are
+    /// freshly written they carry `first_row_id: None`, so a seeded writer would assign them new IDs
+    /// and advance `next_row_id` as though rows had been added — re-minting the `_row_id` of rows the
+    /// operation never touched.
+    fn assigns_row_ids(&self) -> bool {
+        true
+    }
 }
 
 pub(crate) struct DefaultManifestProcess;
@@ -783,7 +803,13 @@ partition_struct: {:?}, partition_type: {:?}",
                 self.snapshot_id,
                 parent_snapshot_id,
                 next_seq_num,
-                Some(first_row_id),
+                // `None` for an operation that assigns no row IDs (see
+                // `SnapshotProduceOperation::assigns_row_ids`). An unseeded writer leaves
+                // `first_row_id` unset rather than minting fresh values, and `next_row_id()` below
+                // then returns `None`, so the snapshot is built without a row range.
+                snapshot_produce_operation
+                    .assigns_row_ids()
+                    .then_some(first_row_id),
             ),
         };
 
