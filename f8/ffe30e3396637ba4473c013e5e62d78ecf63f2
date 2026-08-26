@@ -1,0 +1,21 @@
+crates/iceberg/src/spec/values/temporal.rs
+  s_81772517757052::t_a81a5a215918b1 101-105,109-110
+crates/iceberg/src/spec/values/tests.rs
+  s_81772517757052::t_ae0c991cceaeb2 238-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f8ffe30e3396637ba4473c013e5e62d78ecf63f2",
+  "prompts": {},
+  "sessions": {
+    "s_81772517757052": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fc27dbb05ffe5NQIQ4w8OlKIVn",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Volodymyr Dorokhov <volodymyr@cloudflare.com>"
+    }
+  }
+}
