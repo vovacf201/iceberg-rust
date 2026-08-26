@@ -1,0 +1,32 @@
+crates/iceberg/src/transaction/snapshot.rs
+  s_5306e8a11082a9::t_8894918663815a 864-874,896-906,914-915,931,933-935,938-940,942-961
+  s_5306e8a11082a9::t_44c8e5e38b28bb 875-895,907-913,916-930,932,936-937,941
+crates/iceberg/src/transaction/replace_files.rs
+  s_5306e8a11082a9::t_f35e4385b09619 240,267,355-370,461-466,488,529-574,576-582,589-646,648-655,703-719
+  s_5306e8a11082a9::t_0c53b908eb7a77 575,585,587-588,647,656-702
+  s_81772517757052::t_ca2e6f749b1f2f 583-584,586
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "04c7ad1f6e3043aee00bcbe94949080fb07e5ec9",
+  "prompts": {},
+  "sessions": {
+    "s_5306e8a11082a9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05bf2bebaffecL5EGAfPppS3QK",
+        "model": "claude-opus-5"
+      },
+      "human_author": "vovacf201 <volodymyr@cloudflare.com>"
+    },
+    "s_81772517757052": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fc27dbb05ffe5NQIQ4w8OlKIVn",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Volodymyr Dorokhov <volodymyr@cloudflare.com>"
+    }
+  }
+}
