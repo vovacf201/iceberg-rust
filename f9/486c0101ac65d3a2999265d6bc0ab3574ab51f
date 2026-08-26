@@ -1,0 +1,19 @@
+crates/iceberg/src/writer/file_writer/parquet_writer.rs
+  s_012f6ed62a5dc1::t_63c57729dd1ea6 957-1139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f9486c0101ac65d3a2999265d6bc0ab3574ab51f",
+  "prompts": {},
+  "sessions": {
+    "s_012f6ed62a5dc1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_02dc30a0bffeYepyGXd3d8ensW",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Volodymyr Dorokhov <volodymyr@cloudflare.com>"
+    }
+  }
+}
