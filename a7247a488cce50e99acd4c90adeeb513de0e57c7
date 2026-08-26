@@ -1,0 +1,19 @@
+crates/iceberg/src/transaction/rewrite_manifests.rs
+  s_012f6ed62a5dc1::t_4cb471929b4905 27,405-434,441-452,877-890,892,894-924,927-928,930,932-958,961-962,964-987,1060
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a7247a488cce50e99acd4c90adeeb513de0e57c7",
+  "prompts": {},
+  "sessions": {
+    "s_012f6ed62a5dc1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_02dc30a0bffeYepyGXd3d8ensW",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Volodymyr Dorokhov <volodymyr@cloudflare.com>"
+    }
+  }
+}
