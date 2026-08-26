@@ -1,0 +1,21 @@
+crates/iceberg/src/transaction/replace_files.rs
+  s_5306e8a11082a9::t_f35e4385b09619 240,267,355-370,461-466,482,487-488,492-493,529-715
+crates/iceberg/src/transaction/snapshot.rs
+  s_5306e8a11082a9::t_8894918663815a 864-963
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "485f58f12bb75c382cf86d93abf829fc89ae2c1c",
+  "prompts": {},
+  "sessions": {
+    "s_5306e8a11082a9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05bf2bebaffecL5EGAfPppS3QK",
+        "model": "claude-opus-5"
+      },
+      "human_author": "vovacf201 <volodymyr@cloudflare.com>"
+    }
+  }
+}
