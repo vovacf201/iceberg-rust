@@ -1,0 +1,36 @@
+crates/iceberg/src/transaction/replace_files.rs
+  s_5306e8a11082a9::t_f35e4385b09619 240,267,355-370,461-466,482,489,494-495,531-563,574-578,579-587,589-595,602,603,604-659,661-663,664-668,716-763,920-933
+  s_5306e8a11082a9::t_0c53b908eb7a77 487,490,564-573,588,598,600-601,660,669-715,764-919
+  s_81772517757052::t_ca2e6f749b1f2f 596-597,599
+crates/iceberg/src/transaction/snapshot.rs
+  s_5306e8a11082a9::t_8894918663815a 888-898,920-929,931,939-940,956,958-960,963-965,967,985-986,987-1014,1018,1020,1055-1060
+  s_5306e8a11082a9::t_44c8e5e38b28bb 899-919,930,932-938,941-955,957,961-962,966,968-984,1015-1017,1019,1021-1054
+crates/iceberg/src/delete_file_index.rs
+  s_5306e8a11082a9::t_3b76ea6f9e0d9b 40-42
+  s_5306e8a11082a9::t_5bc2c1f78ffe84 37-39
+  s_5306e8a11082a9::t_fb035a8a17ee76 43-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "02ab2a5af77431d8e42a4b016f02343a75b63e87",
+  "prompts": {},
+  "sessions": {
+    "s_5306e8a11082a9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05bf2bebaffecL5EGAfPppS3QK",
+        "model": "claude-opus-5"
+      },
+      "human_author": "vovacf201 <volodymyr@cloudflare.com>"
+    },
+    "s_81772517757052": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fc27dbb05ffe5NQIQ4w8OlKIVn",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Volodymyr Dorokhov <volodymyr@cloudflare.com>"
+    }
+  }
+}
